@@ -132,36 +132,48 @@ double calculate_std_dev(double values[], int n, double mean) {
     return sqrt(sum_sq_diff / n);
 }
 
-// 통계 출력
-void print_statistics(const char* phase, PerfMetrics metrics[], int n) {
-    double times[NUM_ITERATIONS];
-    double memories[NUM_ITERATIONS];
-    double time_sum = 0, memory_sum = 0;
-    double time_max = metrics[0].time_taken * 1000.0;  // 초를 밀리초로 변환
-    double memory_max = metrics[0].memory_used;
-    
-    for (int i = 0; i < n; i++) {
-        times[i] = metrics[i].time_taken * 1000.0;  // 초를 밀리초로 변환
-        memories[i] = metrics[i].memory_used;
-        time_sum += times[i];
-        memory_sum += memories[i];
-        
-        time_max = fmax(time_max, times[i]);
-        memory_max = fmax(memory_max, memories[i]);
-    }
-    
-    double time_mean = time_sum / n;
-    double memory_mean = memory_sum / n;
-    double time_std = calculate_std_dev(times, n, time_mean);
-    double memory_std = calculate_std_dev(memories, n, memory_mean);
-    
-    printf("\n=== %s 통계 (n=%d) ===\n", phase, n);
-    printf("처리 시간:\n");
-    printf("  평균: %.2f ms ± %.2f ms\n", time_mean, time_std);
-    printf("  최대: %.2f ms\n", time_max);
-    printf("메모리 사용량:\n");
-    printf("  평균: %.2f KB ± %.2f KB\n", memory_mean, memory_std);
-    printf("  최대: %.2f KB\n", memory_max);
+// 통계 출력 (파일과 터미널 모두 지원)
+void print_statistics(const char* phase, PerfMetrics metrics[], int n, FILE* file, int print_to_terminal) {
+   double times[NUM_ITERATIONS];
+   double memories[NUM_ITERATIONS];
+   double time_sum = 0, memory_sum = 0;
+   double time_max = metrics[0].time_taken * 1000.0;
+   double memory_max = metrics[0].memory_used;
+   
+   for (int i = 0; i < n; i++) {
+       times[i] = metrics[i].time_taken * 1000.0;
+       memories[i] = metrics[i].memory_used;
+       time_sum += times[i];
+       memory_sum += memories[i];
+       
+       time_max = fmax(time_max, times[i]);
+       memory_max = fmax(memory_max, memories[i]);
+   }
+   
+   double time_mean = time_sum / n;
+   double memory_mean = memory_sum / n;
+   double time_std = calculate_std_dev(times, n, time_mean);
+   double memory_std = calculate_std_dev(memories, n, memory_mean);
+   
+   if (print_to_terminal) {
+       printf("\n=== %s 통계 (n=%d) ===\n", phase, n);
+       printf("처리 시간:\n");
+       printf("  평균: %.2f ms ± %.2f ms\n", time_mean, time_std);
+       printf("  최대: %.2f ms\n", time_max);
+       printf("메모리 사용량:\n");
+       printf("  평균: %ld KB ± %.2f KB\n", (long)memory_mean, memory_std);
+       printf("  최대: %ld KB\n", (long)memory_max);
+   }
+   
+   if (file) {
+       fprintf(file, "\n=== %s 통계 (n=%d) ===\n", phase, n);
+       fprintf(file, "처리 시간:\n");
+       fprintf(file, "  평균: %.2f ms ± %.2f ms\n", time_mean, time_std);
+       fprintf(file, "  최대: %.2f ms\n", time_max);
+       fprintf(file, "메모리 사용량:\n");
+       fprintf(file, "  평균: %ld KB ± %.2f KB\n", (long)memory_mean, memory_std);
+       fprintf(file, "  최대: %ld KB\n", (long)memory_max);
+   }
 }
 
 void save_png(const char* filename, unsigned char* image, int width, int height) {
@@ -506,34 +518,59 @@ ProcessingMetrics process_iteration(const char* filename) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        printf("사용법: %s <pcd_file>\n", argv[0]);
-        return 1;
-    }
+   if (argc != 2) {
+       printf("사용법: %s <pcd_file>\n", argv[0]);
+       return 1;
+   }
 
-    ProcessingMetrics all_metrics[NUM_ITERATIONS];
-    printf("성능 테스트 시작 (%d회 반복)...\n", NUM_ITERATIONS);
-    
-    for (int i = 0; i < NUM_ITERATIONS; i++) {
-        printf("\n반복 %d/%d:\n", i + 1, NUM_ITERATIONS);
-        all_metrics[i] = process_iteration(argv[1]);
-    }
-    
-    // 각 단계별 메트릭 수집
-    PerfMetrics grid_metrics[NUM_ITERATIONS];
-    PerfMetrics png_metrics[NUM_ITERATIONS];
-    PerfMetrics total_metrics[NUM_ITERATIONS];
-    
-    for (int i = 0; i < NUM_ITERATIONS; i++) {
-        grid_metrics[i] = all_metrics[i].grid_construction;
-        png_metrics[i] = all_metrics[i].png_generation;
-        total_metrics[i] = all_metrics[i].total;
-    }
-    
-    // 종합 통계 출력
-    print_statistics("그리드 구축 단계", grid_metrics, NUM_ITERATIONS);
-    print_statistics("PNG 생성 단계", png_metrics, NUM_ITERATIONS);
-    print_statistics("전체 처리", total_metrics, NUM_ITERATIONS);
-    
-    return 0;
+   FILE* result_file = fopen("result.txt", "w");
+   if (!result_file) {
+       printf("결과 파일을 생성할 수 없습니다.\n");
+       return 1;
+   }
+
+   ProcessingMetrics all_metrics[NUM_ITERATIONS];
+   printf("성능 테스트 시작 (%d회 반복)...\n", NUM_ITERATIONS);
+   
+   fprintf(result_file, "=== 각 라운드별 성능 측정 결과 ===\n");
+
+   for (int i = 0; i < NUM_ITERATIONS; i++) {
+       printf("\r반복 %d/%d", i + 1, NUM_ITERATIONS);
+       fflush(stdout);
+       reset_memory_tracking();
+       all_metrics[i] = process_iteration(argv[1]);
+
+       // 각 라운드의 결과를 파일에 기록
+       fprintf(result_file, "\n[Round %d]\n", i + 1);
+       fprintf(result_file, "그리드 구축: %.2f ms, %ld KB\n", 
+               all_metrics[i].grid_construction.time_taken * 1000.0,
+               all_metrics[i].grid_construction.memory_used);
+       fprintf(result_file, "PNG 생성: %.2f ms, %ld KB\n",
+               all_metrics[i].png_generation.time_taken * 1000.0,
+               all_metrics[i].png_generation.memory_used);
+       fprintf(result_file, "전체 처리: %.2f ms, %ld KB\n",
+               all_metrics[i].total.time_taken * 1000.0,
+               all_metrics[i].total.memory_used);
+   }
+   printf("\n\n");
+   
+   // 각 단계별 메트릭 수집
+   PerfMetrics grid_metrics[NUM_ITERATIONS];
+   PerfMetrics png_metrics[NUM_ITERATIONS];
+   PerfMetrics total_metrics[NUM_ITERATIONS];
+   
+   for (int i = 0; i < NUM_ITERATIONS; i++) {
+       grid_metrics[i] = all_metrics[i].grid_construction;
+       png_metrics[i] = all_metrics[i].png_generation;
+       total_metrics[i] = all_metrics[i].total;
+   }
+   
+   // 최종 통계를 파일과 터미널에 출력
+   fprintf(result_file, "\n=== 최종 통계 ===\n");
+   print_statistics("그리드 구축 단계", grid_metrics, NUM_ITERATIONS, result_file, 1);
+   print_statistics("PNG 생성 단계", png_metrics, NUM_ITERATIONS, result_file, 1);
+   print_statistics("전체 처리", total_metrics, NUM_ITERATIONS, result_file, 1);
+   
+   fclose(result_file);
+   return 0;
 }
