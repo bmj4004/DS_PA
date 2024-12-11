@@ -2,7 +2,7 @@
 
 
 main : main.o
-	gcc -o $@ $^ -lGL -lGLU -lglut -lm
+	gcc -o $@ $^ -lGL -lGLU -lglut -lpng -lm
 	rm *.o
 
 main.o : main.c
